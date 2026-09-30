@@ -10,7 +10,7 @@
 <header>
   <h1>Agentic RAG Cards</h1>
   <select id="lesson" aria-label="Lesson"></select>
-  <button id="chat-toggle">Quiz with Claude</button>
+  <button id="chat-toggle">Claude</button>
 </header>
 <main>
   <section id="deck">
@@ -22,14 +22,19 @@
       <span id="pos"></span>
       <button id="next">Next &rarr;</button>
     </nav>
-    <p class="hint">Arrow keys to move. Space to show the answer.</p>
+    <p class="hint">Arrow keys to move. Space to show the answer or the next diagram step.</p>
   </section>
   <aside id="chat" hidden>
-    <div id="log"></div>
+    <div class="tabs">
+      <button data-mode="ask" class="on">Ask about this card</button>
+      <button data-mode="quiz">Quiz me</button>
+    </div>
+    <div id="log-ask" class="log"></div>
+    <div id="log-quiz" class="log" hidden></div>
     <form id="chat-form">
-      <textarea id="msg" rows="3" placeholder="Type your answer, or 'start'"></textarea>
+      <textarea id="msg" rows="3" placeholder="Ask a question about this card"></textarea>
       <div class="row">
-        <button type="button" id="chat-new">New quiz</button>
+        <button type="button" id="chat-new">New chat</button>
         <button type="submit">Send</button>
       </div>
     </form>
@@ -37,6 +42,7 @@
 </main>
 <script src="cards.js"></script>
 <script src="quiz.js"></script>
+<script src="diagrams.js"></script>
 <script src="app.js"></script>
 <script src="chat.js"></script>
 </body>

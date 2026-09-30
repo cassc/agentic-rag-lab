@@ -5,20 +5,54 @@ const store = {
 };
 
 let slides = [], i = 0, answers = {};
+const BASE = structuredClone(LESSONS);
+
+async function loadExtras() {
+  LESSONS.forEach((l, n) => { l.cards = structuredClone(BASE[n].cards); l.qa = structuredClone(BASE[n].qa); });
+  try {
+    const r = await fetch("extra-cards.json", { cache: "no-store" });
+    for (const e of r.ok ? await r.json() : []) {
+      const arr = LESSONS.find((l) => l.id === e.lesson)?.[e.type];
+      if (!arr) continue;
+      if (Number.isInteger(e.index) && e.index < arr.length) arr[e.index] = { ...e.data, fp: arr[e.index].fp };
+      else arr.push(e.data);
+    }
+  } catch {}
+}
+
+async function reloadDeck() {
+  await loadExtras();
+  const k = i;
+  slides = build($("lesson").value);
+  i = Math.min(k, slides.length - 1);
+  render();
+}
+
+function currentCard() {
+  const s = slides[i];
+  if (s.type) return { lesson: s.l.id, type: s.type, index: s.idx, text: `L${s.l.id} ${s.l.title} - ${s.kind}: ${s.t || s.q} | ${s.b || s.a}` };
+  if (s.kind === "Diagram") return { lesson: s.l.id, text: `L${s.l.id} diagram "${s.d.t}", step ${s.step + 1}: ${s.d.steps[s.step].s}` };
+  return { lesson: s.l?.id, text: s.l ? `L${s.l.id} ${s.l.title} - quiz: ${s.item.q}` : "quiz result page" };
+}
 
 function build(id, only) {
   const lessons = id === "all" ? LESSONS : LESSONS.filter((l) => l.id === id);
   const s = [];
   if (!only) {
     for (const l of lessons) {
-      for (const c of l.cards) s.push({ kind: "Concept", l, ...c });
-      for (const c of l.qa) s.push({ kind: "Likely question", l, ...c });
+      l.cards.forEach((c, idx) => {
+        s.push({ kind: c.fp ? "First principle" : "Concept", l, type: "cards", idx, ...c });
+        if (idx === 0) for (const d of DIAGRAMS[l.id] || []) s.push({ kind: "Diagram", l, d, step: 0 });
+      });
+      l.qa.forEach((c, idx) => s.push({ kind: "Likely question", l, type: "qa", idx, ...c }));
     }
   }
   for (const l of lessons) {
     QUIZ[l.id].forEach((item, n) => {
       const key = l.id + "-" + n;
-      if (!only || only.has(key)) s.push({ kind: "Quiz", l, item, key });
+      const order = item.o.map((_, n) => n).sort(() => Math.random() - 0.5);
+      const it = { ...item, o: order.map((n) => item.o[n]), a: order.indexOf(item.a) };
+      if (!only || only.has(key)) s.push({ kind: "Quiz", l, item: it, key });
     });
   }
   s.push({ kind: "Result" });
@@ -40,14 +74,23 @@ function render() {
   $("prev").disabled = i === 0;
   $("next").disabled = i === slides.length - 1;
   card.className = s.kind.split(" ")[0].toLowerCase();
-  if (s.kind === "Concept") card.innerHTML = `<h2>${s.t}</h2><div>${s.b}</div>`;
+  if (s.type === "cards") card.innerHTML = `<h2>${s.t}</h2><div>${s.b}</div>`;
   else if (s.kind === "Likely question") {
     card.innerHTML = `<h2>${s.q}</h2>` + (s.shown
       ? `<div class="answer">${s.a}</div>`
       : `<button class="reveal">Show answer (space)</button>`);
-  } else if (s.kind === "Quiz") renderQuiz(s, card);
+  } else if (s.kind === "Diagram") renderDiagram(s, card);
+  else if (s.kind === "Quiz") renderQuiz(s, card);
   else renderResult(card);
   store.set("pos:" + $("lesson").value, i);
+}
+
+function renderDiagram(s, card) {
+  const src = `../docs/diagrams/png/${s.d.img}.png`, cur = s.d.steps[s.step];
+  card.innerHTML = `<h2>${s.d.t}</h2>
+    <div class="dia"><a href="${src}" target="_blank" title="Open full size"><img src="${src}" alt="${s.d.img} diagram"></a>
+    <div><ol class="steps">${s.d.steps.map((x, n) => `<li data-n="${n}" class="${n === s.step ? "on" : n < s.step ? "done" : ""}">${x.s}${x.loop ? ' <span class="loop">loop</span>' : ""}</li>`).join("")}</ol>
+    <p class="note">${cur.n || "&nbsp;"}</p></div></div>`;
 }
 
 function renderQuiz(s, card) {
@@ -66,7 +109,7 @@ function renderResult(card) {
   card.innerHTML = `<h2>Score: ${right} / ${qs.length}</h2>` +
     (wrong.length ? `<button id="retry">Retry wrong or skipped (${wrong.length})</button>` : "<p>All right.</p>") +
     `<button id="restart">Start again</button>` +
-    `<p>Next: open <b>Quiz with Claude</b> for open questions and graded answers.</p>`;
+    `<p>Next: open <b>Claude</b> -> <b>Quiz me</b> for open "why" questions with graded answers.</p>`;
   card.dataset.wrong = wrong.join(",");
 }
 
@@ -75,6 +118,7 @@ function go(d) { i = Math.max(0, Math.min(slides.length - 1, i + d)); render(); 
 $("card").addEventListener("click", (e) => {
   const s = slides[i], t = e.target;
   if (t.classList.contains("reveal")) { s.shown = true; render(); }
+  else if (t.closest(".steps li")) { s.step = +t.closest("li").dataset.n; render(); }
   else if (t.classList.contains("opt")) { answers[s.key] = +t.dataset.n; render(); }
   else if (t.id === "retry") start($("lesson").value, new Set($("card").dataset.wrong.split(",")));
   else if (t.id === "restart") { store.set("pos:" + $("lesson").value, 0); start($("lesson").value); }
@@ -89,6 +133,11 @@ document.addEventListener("keydown", (e) => {
     e.preventDefault();
     slides[i].shown = !slides[i].shown;
     render();
+  } else if (e.key === " " && slides[i].kind === "Diagram") {
+    e.preventDefault();
+    const s = slides[i];
+    s.step = (s.step + 1) % s.d.steps.length;
+    render();
   }
 });
 
@@ -97,4 +146,4 @@ sel.innerHTML = `<option value="all">All lessons</option>` +
   LESSONS.map((l) => `<option value="${l.id}">L${l.id} ${l.title}</option>`).join("");
 sel.value = store.get("lesson") || "01";
 sel.onchange = () => { store.set("lesson", sel.value); start(sel.value); };
-start(sel.value);
+loadExtras().then(() => start(sel.value));
