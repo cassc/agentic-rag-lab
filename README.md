@@ -8,6 +8,10 @@ and ends with review questions. The numbers are honest, including the cases
 where the fancier method did not help.
 
 - **Start here:** [CHEATSHEET.md](CHEATSHEET.md) - all concepts on one page.
+- **Study cards + quiz:** `uv run web/server.py`, open http://127.0.0.1:8765.
+  Slide cards, likely questions, a quiz, and a chat where Claude Code quizzes
+  you (needs the `claude` CLI). Without the server, open `web/index.html`
+  directly (no chat).
 - **Diagrams:** [docs/diagrams](docs/diagrams/README.md) (Structurizr C4 +
   dynamic views; PNGs; source in `src/workspace.dsl`).
 - **Models:** [docs/embedding-models.md](docs/embedding-models.md).

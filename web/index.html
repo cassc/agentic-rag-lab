@@ -1,0 +1,43 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Agentic RAG Cards</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<header>
+  <h1>Agentic RAG Cards</h1>
+  <select id="lesson" aria-label="Lesson"></select>
+  <button id="chat-toggle">Quiz with Claude</button>
+</header>
+<main>
+  <section id="deck">
+    <div id="progress"><div id="bar"></div></div>
+    <p id="kind"></p>
+    <article id="card" tabindex="0"></article>
+    <nav>
+      <button id="prev">&larr; Back</button>
+      <span id="pos"></span>
+      <button id="next">Next &rarr;</button>
+    </nav>
+    <p class="hint">Arrow keys to move. Space to show the answer.</p>
+  </section>
+  <aside id="chat" hidden>
+    <div id="log"></div>
+    <form id="chat-form">
+      <textarea id="msg" rows="3" placeholder="Type your answer, or 'start'"></textarea>
+      <div class="row">
+        <button type="button" id="chat-new">New quiz</button>
+        <button type="submit">Send</button>
+      </div>
+    </form>
+  </aside>
+</main>
+<script src="cards.js"></script>
+<script src="quiz.js"></script>
+<script src="app.js"></script>
+<script src="chat.js"></script>
+</body>
+</html>
