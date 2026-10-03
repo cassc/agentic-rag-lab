@@ -1,0 +1,49 @@
+{
+  "alice": {
+    "sessions": [
+      "user: Hi, I'm new to the API. I trade mostly ETHUSDT.\nassistant: Welcome. What can I help with?\nuser: Please always show prices in EUR for me, I think in euro.\nassistant: Noted, EUR.\nuser: Also I never want to use market orders, only limit orders. I got burned by slippage once.\nassistant: Understood, limit orders only.\nuser: What does the LOT_SIZE filter do?\nassistant: It sets the minimum, maximum and step for the order quantity.",
+      "user: My bot hit error -1021 today. What is that?\nassistant: INVALID_TIMESTAMP. The request timestamp was outside recvWindow.\nuser: Ok, I fixed my clock. Thanks.\nuser: By the way, I changed my mind about currency. Show prices in USD from now on, my accountant wants dollars.\nassistant: Done, USD from now on.",
+      "user: Good morning. Is the API up?\nassistant: Yes, all systems normal.\nuser: I want a safety rule. My max order size is 500 USDT per order. Don't let me go above this.\nassistant: I will keep orders at or under 500 USDT.\nuser: What is the weight of the ticker price endpoint?\nassistant: 2 for one symbol."
+    ],
+    "questions": [
+      {"q": "Which currency should prices be shown in for this user?", "answer": "USD"},
+      {"q": "Which order type does this user refuse to use?", "answer": "Market orders. Limit orders only."},
+      {"q": "What is this user's maximum order size?", "answer": "500 USDT per order"}
+    ]
+  },
+  "bob": {
+    "sessions": [
+      "user: I run a market-making bot on BTCUSDT and SOLUSDT.\nassistant: Good to know.\nuser: My API key is rate limited hard, so keep request weight low in anything you suggest.\nassistant: I will prefer low-weight endpoints.\nuser: I'm in the UTC+8 timezone, show all times in that.\nassistant: Times in UTC+8.",
+      "user: How do I cancel all open orders on a symbol?\nassistant: DELETE /api/v3/openOrders with the symbol.\nuser: I moved to Berlin last week, so use UTC+1 for times now.\nassistant: Switched to UTC+1.\nuser: And I prefer Python code examples, not curl.\nassistant: Python it is.",
+      "user: Quick update on my setup: we stopped market-making on SOLUSDT. The bot only runs on BTCUSDT now.\nassistant: Noted, BTCUSDT only.\nuser: What is the max recvWindow?\nassistant: 60000 ms."
+    ],
+    "questions": [
+      {"q": "Which timezone should times be shown in for this user?", "answer": "UTC+1"},
+      {"q": "Which language does this user want code examples in?", "answer": "Python"},
+      {"q": "Which symbols does this user's bot trade now?", "answer": "Only BTCUSDT"}
+    ]
+  },
+  "carol": {
+    "sessions": [
+      "user: I'm a compliance officer, not a trader. I only need read-only data. Never suggest placing orders to me.\nassistant: Understood, read-only.\nuser: I need the trade report weekly, on Mondays.\nassistant: Weekly report on Mondays.",
+      "user: Change of plan, send the weekly report on Fridays instead.\nassistant: Fridays from now on.\nuser: Is there an endpoint for account trade history?\nassistant: GET /api/v3/myTrades.",
+      "user: We call our main account 'treasury-1'. Use that name when you talk about it.\nassistant: I will call it treasury-1.\nuser: What does error -2010 mean?\nassistant: NEW_ORDER_REJECTED."
+    ],
+    "questions": [
+      {"q": "On which day does this user want the weekly report?", "answer": "Friday"},
+      {"q": "May the assistant suggest placing orders to this user?", "answer": "No. The user is a compliance officer and wants read-only data."},
+      {"q": "What does this user call their main account?", "answer": "treasury-1"}
+    ]
+  },
+  "dave": {
+    "sessions": [
+      "user: I trade DOGEUSDT for fun, small sizes.\nassistant: Nice.\nuser: Limit me to 50 USDT per order so I don't do anything silly.\nassistant: Max 50 USDT per order.",
+      "user: I got a bonus. Raise my limit to 200 USDT per order.\nassistant: Your limit is now 200 USDT per order.\nuser: What is the tick size?\nassistant: The smallest price step allowed by PRICE_FILTER."
+    ],
+    "questions": [
+      {"q": "What is this user's maximum order size?", "answer": "200 USDT per order"},
+      {"q": "Which symbol does this user trade?", "answer": "DOGEUSDT"},
+      {"q": "Which currency should prices be shown in for this user?", "answer": "unknown", "unknown": true}
+    ]
+  }
+}

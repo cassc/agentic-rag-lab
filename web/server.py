@@ -1,4 +1,4 @@
-"""Serve the cards page and let Claude Code tutor/quiz you: uv run web/server.py"""
+"""Serve the study cards and let Claude Code tutor/quiz you: python3 <this dir>/server.py"""
 import json
 import os
 import re
@@ -7,21 +7,29 @@ import threading
 from functools import partial
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
+from urllib.parse import parse_qs, urlsplit
 
 HOST, PORT = "127.0.0.1", int(os.environ.get("PORT", 8765))
-WEB = Path(__file__).parent
+WEB = Path(__file__).resolve().parent
 ROOT = WEB.parent
 EXTRA = WEB / "extra-cards.json"
 PROMPTS = {m: (WEB / f"{m}_prompt.md").read_text() for m in ("ask", "quiz")}
 ORIGINS = {f"http://{HOST}:{PORT}", f"http://localhost:{PORT}"}
+HOSTS = {o.split("//")[1] for o in ORIGINS}
+ASSETS = {f"{WEB.name}/diagrams", "docs/diagrams/png"}  # repo-relative image dirs the page may load
+MAX_SOURCE = 1_000_000  # bytes; larger files are not shown in the source popup
+MAX_FILES = 5000  # cap for the file list when the folder is not a git repo
 SESSION = re.compile(r"^[0-9a-f-]{36}$")
 FIELDS = {"cards": ("t", "b"), "qa": ("q", "a")}
+KEEP = 20  # chat results kept in memory, by message id
+jobs: dict[str, dict] = {}
 lock = threading.Lock()
 
 
 def ask_claude(message: str, mode: str, session_id: str | None) -> dict:
     cmd = ["claude", "-p", "--output-format", "json", "--append-system-prompt", PROMPTS[mode],
-           "--tools", "Read,Grep,Glob", "--strict-mcp-config"]
+           "--tools", "Read,Grep,Glob", "--strict-mcp-config",
+           "--permission-mode", "dontAsk", "--disallowedTools", "Read(**/.env)", "Read(**/.env.*)"]
     if session_id:
         cmd += ["--resume", session_id]
     out = subprocess.run(cmd, input=message, cwd=ROOT, capture_output=True, text=True, timeout=300)
@@ -32,21 +40,36 @@ def ask_claude(message: str, mode: str, session_id: str | None) -> dict:
 
 
 def chat(body: dict) -> dict:
-    mode, sid = body.get("mode", "quiz"), body.get("session_id")
-    if mode not in PROMPTS or (sid and not SESSION.match(sid)):
-        raise ValueError("bad mode or session id")
-    msg = body.get("message", "").strip()
-    if mode == "ask":
-        msg = f"[Current card: {str(body.get('card', ''))[:3000]}]\n{msg}"
-    elif not sid:
-        msg = f"Quiz me on: {body.get('lesson', 'all lessons')}. {msg}".strip()
-    return ask_claude(msg, mode, sid)
+    mode, sid, job_id = body.get("mode", "quiz"), body.get("session_id"), body.get("id")
+    if mode not in PROMPTS or (sid and not SESSION.match(sid)) or not (isinstance(job_id, str) and SESSION.match(job_id)):
+        raise ValueError("bad mode, session id or message id")
+    with lock:
+        job = jobs.get(job_id)
+        if first := job is None:
+            job = jobs[job_id] = {"done": threading.Event()}
+            for old in list(jobs)[:-KEEP]:
+                del jobs[old]
+    if first:  # the same id again (a page refresh) waits for this run and gets the same result
+        msg = body.get("message", "").strip()
+        if mode == "ask":
+            msg = f"[Current card: {str(body.get('card', ''))[:20000]}]\n{msg}"
+        elif not sid:
+            msg = f"Quiz me on: {body.get('lesson', 'all lessons')}. {msg}".strip()
+        try:
+            job["res"] = ask_claude(msg, mode, sid)
+        except Exception as e:
+            job["err"] = e
+        job["done"].set()
+    job["done"].wait()
+    if "err" in job:
+        raise job["err"]
+    return job["res"]
 
 
 def save_card(body: dict) -> dict:
     lesson, typ, index, data = body.get("lesson"), body.get("type", ""), body.get("index"), body.get("data", {})
     keys = FIELDS.get(typ)
-    if not (isinstance(lesson, str) and re.fullmatch(r"\d\d", lesson) and keys
+    if not (isinstance(lesson, str) and re.fullmatch(r"[\w-]{1,40}", lesson) and keys
             and (index is None or isinstance(index, int))
             and all(isinstance(data.get(k), str) and data[k].strip() for k in keys)):
         raise ValueError("bad card")
@@ -59,11 +82,58 @@ def save_card(body: dict) -> dict:
     return {"ok": True}
 
 
+def files() -> list[str]:
+    """Repo files the popup may show: tracked or new, not git-ignored, no dot parts."""
+    try:
+        out = subprocess.run(["git", "ls-files", "-z", "--cached", "--others", "--exclude-standard"],
+                             cwd=ROOT, capture_output=True, text=True, check=True).stdout.split("\0")
+    except (OSError, subprocess.CalledProcessError):  # no git, or not a git repo: walk the folder
+        out = []
+        for d, dirs, names in os.walk(ROOT):
+            dirs[:] = [x for x in dirs if not x.startswith(".")]
+            out += [(Path(d) / n).relative_to(ROOT).as_posix() for n in names]
+            if len(out) >= MAX_FILES:
+                break
+        out = out[:MAX_FILES]
+    return sorted(p for p in out if p and not any(x.startswith(".") for x in p.split("/")))
+
+
+def source(path: str) -> bytes:
+    file = (ROOT / path).resolve()
+    rel = file.relative_to(ROOT)  # ValueError if outside the repo
+    if rel.as_posix() not in files() or not file.is_file() or file.stat().st_size > MAX_SOURCE:
+        raise ValueError("bad path")
+    data = file.read_bytes()
+    data.decode()  # binary files raise UnicodeDecodeError, a ValueError
+    return data
+
+
 class Handler(SimpleHTTPRequestHandler):
     def translate_path(self, path):
-        if path.startswith("/docs/diagrams/png/"):
-            return str(ROOT / "docs/diagrams/png" / Path(path.split("?")[0]).name)
+        rel = Path(path.split("?")[0].lstrip("/"))
+        if str(rel.parent) in ASSETS and rel.name not in ("", ".", ".."):
+            return str(ROOT / rel.parent / rel.name)
         return super().translate_path(path)
+
+    def do_GET(self):
+        url = urlsplit(self.path)
+        if url.path not in ("/api/source", "/api/files"):
+            return super().do_GET()
+        if self.headers.get("Host") not in HOSTS:
+            return self.send_error(403, "bad host")
+        try:
+            if url.path == "/api/files":
+                data, kind = json.dumps(files()).encode(), "application/json"
+            else:
+                data, kind = source(parse_qs(url.query).get("path", [""])[0]), "text/plain; charset=utf-8"
+        except (ValueError, OSError):
+            return self.send_error(404)
+        self.send_response(200)
+        self.send_header("Content-Type", kind)
+        self.send_header("X-Content-Type-Options", "nosniff")
+        self.send_header("Content-Length", str(len(data)))
+        self.end_headers()
+        self.wfile.write(data)
 
     def do_POST(self):
         route = {"/api/chat": chat, "/api/cards": save_card}.get(self.path)

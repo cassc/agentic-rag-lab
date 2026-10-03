@@ -1,1 +1,74 @@
-[]
+[
+ {
+  "lesson": "04",
+  "type": "qa",
+  "index": null,
+  "data": {
+   "q": "In CRAG, who decides if retrieved chunks are relevant?",
+   "a": "A <b>grader</b> model, run before generation. Paper: a small fine-tuned T5 gives each doc a score; two cutoffs turn scores into correct / ambiguous / incorrect. Our lab: the LLM grades all chunks in one batched call. Cheaper option: cross-encoder score with a cutoff. The grader makes mistakes too, so its precision matters most."
+  }
+ },
+ {
+  "lesson": "04",
+  "type": "cards",
+  "index": 1,
+  "data": {
+   "t": "The flow",
+   "b": "<b>Problem:</b> naive RAG trusts whatever retrieval returns.<br><b>So:</b> an LLM grader checks each chunk first.<ul><li>some relevant -> answer from those only</li><li>none -> rewrite query, hybrid search, grade again (max 2)</li><li>still none -> \"Not in the sources\"</li></ul><b>Evidence:</b> 22 -> 23/25 correct, but 2.2 LLM calls/q vs 1.0."
+  }
+ },
+ {
+  "lesson": "04",
+  "type": "cards",
+  "index": 1,
+  "data": {
+   "t": "The flow",
+   "b": "<b>Problem:</b> naive RAG trusts whatever retrieval returns.<br><b>So:</b> an LLM grader checks each chunk first.<ul><li>some relevant -> answer from those only</li><li>none -> rewrite query, hybrid search, grade again (max 2)</li><li>still none -> \"Not in the sources\"</li></ul><b>Evidence:</b> correct: naive 22/25, CRAG 23/25. Cost: 1.0 -> 2.2 LLM calls per question. Small gain, double cost."
+  }
+ },
+ {
+  "lesson": "04",
+  "type": "cards",
+  "index": 3,
+  "data": {
+   "t": "Value depends on how often retrieval fails",
+   "b": "<b>Problem:</b> retriever ranks by similarity, not 'answers it?'.<br><b>So:</b> CRAG helps when similarity misleads:<ul><li>Duplicates crowd out the answer chunk</li><li>Old pages score like new ones</li><li>User wording far from doc wording (rewrite fixes)</li></ul><b>Evidence:</b> clean docs: naive 22/25, CRAG 23/25 (the EXPIRE_MAKER rewrite), 2.2x calls."
+  }
+ },
+ {
+  "lesson": "04",
+  "type": "qa",
+  "index": null,
+  "data": {
+   "q": "Top-k is filled with relevant near-duplicates. Does CRAG fetch the other useful chunks?",
+   "a": "No. The grader checks each chunk alone, so all copies pass and no retry starts. It does not check coverage or diversity. Fix before grading: dedupe, MMR, or fetch more then rerank. Or grade the whole set: 'is this enough to answer?'"
+  }
+ },
+ {
+  "lesson": "04",
+  "type": "qa",
+  "index": null,
+  "data": {
+   "q": "How do you remove duplicate chunks in RAG?",
+   "a": "<ol><li><b>Exact:</b> normalize + hash</li><li><b>Near, by text:</b> MinHash / SimHash</li><li><b>Near, by meaning:</b> embedding cosine above a tuned threshold</li></ol>Clean at index time first (1+2, keep newest). At query time, fetch more, then MMR. Risk: merging chunks that differ in one number."
+  }
+ },
+ {
+  "lesson": "04",
+  "type": "qa",
+  "index": null,
+  "data": {
+   "q": "What is MMR and why use it in retrieval?",
+   "a": "<b>Problem:</b> top-k by similarity can return k copies.<br><b>So:</b> pick chunks one by one: <code>λ*sim(query) - (1-λ)*max sim(picked)</code>. A chunk like one already picked loses points.<br>λ sets relevance vs variety. Nothing is deleted from the index, unlike MinHash/SimHash dedupe."
+  }
+ },
+ {
+  "lesson": "04",
+  "type": "qa",
+  "index": null,
+  "data": {
+   "q": "Dedupe at index time or query time?",
+   "a": "<b>Problem:</b> copies fill top-k before query-time dedupe can run, and they skew BM25.<br><b>So:</b> delete exact copies at index time. Tag near copies with a group id, then keep one per group at query time. Use MMR for the rest.<br>Query-time only = must over-fetch, with no safe size."
+  }
+ }
+]
