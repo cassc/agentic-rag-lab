@@ -70,5 +70,176 @@
    "q": "Dedupe at index time or query time?",
    "a": "<b>Problem:</b> copies fill top-k before query-time dedupe can run, and they skew BM25.<br><b>So:</b> delete exact copies at index time. Tag near copies with a group id, then keep one per group at query time. Use MMR for the rest.<br>Query-time only = must over-fetch, with no safe size."
   }
+ },
+ {
+  "lesson": "01",
+  "type": "cards",
+  "index": null,
+  "data": {
+   "t": "How search() works, line by line",
+   "b": "<b>Problem:</b> find the k chunks closest to the query, fast.<br><b>So:</b><ol><li><code>self.emb.query(query)</code>: the embedder turns the question into one vector of length 1.</li><li><code>self.vecs @ q</code>: <code>@</code> is matrix multiply. It gives one dot product per chunk row. With length-1 vectors, this is the cosine score.</li><li><code>np.argsort(-scores)[:k]</code>: argsort returns <i>positions</i>, not values. The minus sign puts the biggest score first.</li><li>Use each position <code>i</code> to return <code>(chunks[i], score)</code>.</li></ol><pre><code class=\"language-py\">scores = np.array([0.2, 0.9, 0.5])\nnp.argsort(-scores)[:2]  # [1, 2]</code></pre><code>lab/index.py:21-24</code>"
+  }
+ },
+ {
+  "lesson": "01",
+  "type": "qa",
+  "index": null,
+  "data": {
+   "q": "Why prepend doc name and heading into the chunk text instead of keeping them only as metadata?",
+   "a": "<b>Problem:</b> search only sees the string you give it. The embedding model, BM25 and the reranker cannot read a field outside that string.<br><b>So:</b> metadata alone leaves a chunk like \"UTC\" embedded as just \"UTC\". The heading must be in the text to change the match. The repo keeps both: fields <code>lab/chunk.py:12-13</code> for filters and grading (<code>lab/evals.py:21</code>), and <code>c.full</code> for matching (<code>lab/index.py:17</code>, <code>lab/retrieve.py:16</code>, <code>lab/retrieve.py:45</code>).<br><b>Rule:</b> metadata for filtering and exact checks, prepended text for similarity."
+  }
+ },
+ {
+  "lesson": "01",
+  "type": "cards",
+  "index": 6,
+  "data": {
+   "t": "Where naive RAG breaks",
+   "b": "<b>Problem:</b> one question -> one vector -> one point in meaning space. If the answer needs two facts from two docs, the question vector sits <i>between</i> them and matches neither well.<br><b>So:</b> naive RAG is good for one-fact questions and bad for two-fact (multi-hop) questions.<br><b>Evidence:</b> hit@5 = share of questions with all needed chunks in the top 5. Single-hop 0.96 (good), multi-hop <b>0.40</b> (bad: only 2 of 5 questions). <code>lessons/01_naive_rag/run.py:16-19</code>"
+  }
+ },
+ {
+  "lesson": "01",
+  "type": "cards",
+  "index": null,
+  "data": {
+   "t": "Chunk size vs embedding dimension",
+   "b": "<b>Problem:</b> the two \"sizes\" are easy to mix up.<br><b>So:</b> chunk size is the length of the text piece. Here it is counted in characters: <code>max_chars=1200</code> (about 300 tokens), a soft limit because whole paragraphs are packed. Embedding dimension is the count of numbers in the vector. The model fixes it, and it does not change with text length.<br><b>Why it matters:</b> a bigger chunk presses more meaning into the same vector, so detail is lost.<br><code>lab/chunk.py:23-40</code>, <code>lab/embed.py:8</code>"
+  }
+ },
+ {
+  "lesson": "01",
+  "type": "qa",
+  "index": null,
+  "data": {
+   "q": "What happens if a chunk is longer than the embedding model's token limit?",
+   "a": "<b>Problem:</b> an embedding model reads a fixed number of tokens (512 for <code>bge-small</code>).<br><b>So:</b> in this repo, sentence-transformers silently keeps the first 512 tokens and drops the rest. No error. The vector only describes the start of the chunk, so search cannot find the tail. Some hosted APIs return an error instead.<br><b>Rule:</b> keep chunk size under the model limit. Here <code>max_chars=1200</code> is about 300 tokens, but the limit is soft, so one long paragraph can go over.<br><code>lab/embed.py:24-25</code>, <code>lab/chunk.py:23-38</code>"
+  }
+ },
+ {
+  "lesson": "02",
+  "type": "cards",
+  "index": null,
+  "data": {
+   "t": "Quantization of embeddings",
+   "b": "<b>Problem:</b> each embedding number is a float32 (4 bytes). A 1024-dim vector is about 4 KB, so 10 million vectors need about 40 GB of RAM.<br><b>So:</b> store each number with fewer bits. This trades a little precision for much less memory and faster search.<ul><li>float16: 2x smaller, almost no loss</li><li>int8: 4x smaller, small loss</li><li>binary (sign only): 32x smaller, compare with Hamming distance</li></ul><b>Rules:</b> normalize before you quantize, not after. Fix the rounding error by rescoring the top results with the full float vectors."
+  }
+ },
+ {
+  "lesson": "02",
+  "type": "qa",
+  "index": null,
+  "data": {
+   "q": "In RRF, why is the constant c = 60, and how is it different from k?",
+   "a": "<b>Problem:</b> with <code>1/rank</code> alone, rank 1 (1.0) is worth twice rank 2 (0.5). One list's top pick would win alone.<br><b>So:</b> add a constant: <code>1/(c + rank)</code>. With <code>c=60</code> the curve is flat, so a chunk found by <i>both</i> lists beats a chunk that is first in only one (<code>2/65 = 0.031</code> vs <code>1/61 = 0.016</code>).<br><b>Why 60:</b> the RRF paper (Cormack 2009) found it works well and results change little around it. Keep the default; check 10/60/100 on the golden set only if needed.<br><b>k</b> is a different knob: how many fused results to return (5), from 20 candidates per list. <code>lab/retrieve.py:24-33</code>, <code>lab/retrieve.py:58</code>"
+  }
+ },
+ {
+  "lesson": "02",
+  "type": "qa",
+  "index": null,
+  "data": {
+   "q": "Is a reranker an LLM call? What does it need as input?",
+   "a": "No. It is a small local encoder model (22M parameters here), not a chat model. No prompt, no generated text.<br><b>Input:</b> a list of <code>(question, chunk text)</code> pairs. So you must keep the raw chunk text: a vector is not enough.<br><b>Output:</b> one number per pair. Sort by it.<br><b>Limit:</b> question + chunk must fit in 512 tokens, the rest is cut off.<pre><code class=\"language-py\">scores = CrossEncoder(name, max_length=512).predict(\n    [(query, c.full) for c in chunks])</code></pre><code>lab/retrieve.py:36-47</code>"
+  }
+ },
+ {
+  "lesson": "02",
+  "type": "cards",
+  "index": null,
+  "data": {
+   "t": "Three models, three jobs",
+   "b": "<b>Problem:</b> no single model is fast, precise and able to write text.<br><b>So:</b> use three, from cheap to costly.<ol><li><b>Embedding model</b> (bi-encoder): one text in, a vector out. Chunks are pre-computed. Finds candidates. <code>lab/embed.py:18-20</code></li><li><b>Reranker</b> (cross-encoder): question + chunk in, one score out. Re-sorts a short list. <code>lab/retrieve.py:36-47</code></li><li><b>LLM</b> (decoder): prompt in, text out. Writes the answer. <code>lab/llm.py:13-19</code></li></ol>1 and 2 are both encoders: they read text but cannot write it. Only the last step differs (vector vs one score)."
+  }
+ },
+ {
+  "lesson": "02",
+  "type": "cards",
+  "index": 5,
+  "data": {
+   "t": "Averages hide flips",
+   "b": "<b>Problem:</b> we test on only 25 questions, so one question = 1/25 = 0.04. A small score change can be just one question.<br><b>So:</b> read the list of missed questions, not only the average. A <i>flip</i> is a question that changes from hit to miss. Do not claim a win from one flip: add more questions or run again first.<br><b>Evidence:</b> the bigger reranker (<code>bge-reranker-base</code>) against plain hybrid:<ul><li>MRR@5: 0.82 to 0.85. Looks better.</li><li>hit@5: 1.00 to 0.96. One question lost its right chunk (\"error code for old timestamp\").</li></ul>The MRR gain (0.03) is smaller than one question (0.04), so it may be noise.<br><code>lessons/02_hybrid_rerank/README.md:36-47</code>, model set in <code>lab/retrieve.py:36-40</code>"
+  }
+ },
+ {
+  "lesson": "02",
+  "type": "qa",
+  "index": null,
+  "data": {
+   "q": "How do you convert float32 embeddings to float16? Is a cast enough?",
+   "a": "Yes, a cast is enough. float16 is the same kind of number with fewer bits (about 3 decimal digits instead of 7).<br><pre><code class=\"language-py\">v = v / np.linalg.norm(v)\nv16 = v.astype(np.float16)</code></pre><ul><li>Normalized values are between -1 and 1, so nothing overflows.</li><li>No calibration is needed. int8 needs a min/max range and a scale step.</li><li>Normalize first, in float32, then cast.</li><li>float16 math is slow on many CPUs. Store as float16, cast back to float32 to compute scores.</li></ul>"
+  }
+ },
+ {
+  "lesson": "02",
+  "type": "qa",
+  "index": null,
+  "data": {
+   "q": "With int8 embeddings, do you need to recalibrate when you add new chunks?",
+   "a": "Usually no.<ul><li><b>Normalization</b> is per vector. New chunks do not change old vectors.</li><li><b>Calibration</b> (the min/max range for int8) is per dataset. A new value outside the range is clipped.</li><li>Normalized values stay between -1 and 1, and the same model gives the same spread, so the old range still fits.</li><li>Recalibrate only if you change the model or the data shifts a lot. Then quantize <i>all</i> vectors again with the new range.</li><li>Keep the float32 originals on disk for this, and for rescoring.</li></ul>"
+  }
+ },
+ {
+  "lesson": "02",
+  "type": "cards",
+  "index": null,
+  "data": {
+   "t": "What does c=60 do in RRF?",
+   "b": "<b>Problem:</b> with plain <code>1/rank</code>, rank 1 scores 1.0 and rank 2 scores 0.5. One top spot in one list would decide everything.<br><b>So:</b> RRF uses <code>1/(c + rank)</code> with <code>c=60</code>. Now rank 1 and rank 2 are almost equal (1/61 vs 1/62). A chunk that both lists rank well beats a chunk that only one list ranks first.<br><b>Example:</b> ranks 3 and 4 give 1/63 + 1/64 = 0.0315. Rank 1 in one list only gives 1/61 = 0.0164.<br><b>Cost:</b> RRF ignores how big the score gap is. <code>lab/retrieve.py:24-33</code>"
+  }
+ },
+ {
+  "lesson": "02",
+  "type": "qa",
+  "index": 1,
+  "data": {
+   "q": "Why RRF and not a weighted sum of scores?",
+   "a": "<b>Problem:</b> the two lists score in different units. BM25 runs about 0-30 with no upper limit. Cosine runs 0-1. A plain sum lets BM25 win almost every time.<br><b>Normalising does not fix it:</b> the spread shifts per query. A rare token like <code>-1021</code> gives one huge BM25 score and the rest near zero. Common words give many close scores. So a fixed weight means something different on each query.<br><b>So:</b> use ranks. A rank has no unit. RRF: <code>score = sum 1/(60 + rank)</code>. No tuning. A chunk that both lists rank well (ranks 3 and 4 = 0.0315) beats a chunk that only one list ranks first (0.0164).<br><b>Cost:</b> RRF ignores how big the score gap is. A tuned weighted sum can use that and win, but it needs many labelled questions. We have 25, so one question = 0.04.<br><b>Evidence:</b> hit@5 dense 0.96, BM25 0.96, hybrid RRF 1.00. MRR@5 0.74, 0.64, 0.82. Each one missed a different question. <code>lab/retrieve.py:24-33</code>"
+  }
+ },
+ {
+  "lesson": "02",
+  "type": "qa",
+  "index": 4,
+  "data": {
+   "q": "Our search compares the query with every chunk (brute force). What do you change when the corpus grows to millions of chunks?",
+   "a": "<b>Problem:</b> <code>lab/index.py:21-24</code> does one dot product per chunk, then sorts all scores. Cost grows with the number of chunks. The reranker is also slow per pair.<br><b>So:</b><ul><li>Use ANN (HNSW) in a vector store with built-in hybrid search (Qdrant, Milvus, OpenSearch).</li><li>Apply metadata filters before ranking to shrink the pool.</li><li>Cache frequent queries.</li><li>Rerank only the top 20-50, on GPU.</li></ul>"
+  }
+ },
+ {
+  "lesson": "02",
+  "type": "qa",
+  "index": 4,
+  "data": {
+   "q": "Our search compares the query with every chunk (brute force). What do you change when the corpus grows to millions of chunks?",
+   "a": "<b>Problem:</b> <code>lab/index.py:21-24</code> does one dot product per chunk, then sorts all scores. Cost grows with the number of chunks. The reranker is also slow per pair.<br><b>So:</b><ul><li>Replace the brute-force dense search with ANN (HNSW). ANN only speeds up the vector search.</li><li>Keep BM25 and fusion. Pick a store with built-in hybrid (Qdrant, Milvus, OpenSearch): it runs dense + keyword + fusion inside the server, so your code sends one request instead of doing <code>lab/retrieve.py:58</code> itself.</li><li>Apply metadata filters before ranking to shrink the pool.</li><li>Cache frequent queries.</li><li>Rerank only the top 20-50, on GPU.</li></ul>"
+  }
+ },
+ {
+  "lesson": "00",
+  "type": "qa",
+  "index": null,
+  "data": {
+   "q": "The lab caches vectors in one .npy file named by one hash. Why does this break at 20 million chunks, and what replaces it?",
+   "a": "<b>Problem:</b> brute force keeps every vector in RAM and scans all of them per query. 20M x 384 x 4 bytes is about 31 GB, and each query does 20M dot products. Also, one hash covers all text (<code>lab/index.py:12</code>), so one edited document re-embeds everything.<br><b>So:</b><ul><li>Store one full hash per chunk. Embed only chunks whose hash is new.</li><li>Use an ANN index (HNSW) in a vector database (Qdrant, Milvus, or pgvector).</li><li>Do not cut the hash to 10 chars: 20M hashes of 40 bits give about 180 expected collisions.</li></ul><b>Evidence:</b> brute force is fine up to about 1M chunks (<code>lessons/01_naive_rag/README.md:40-41</code>)."
+  }
+ },
+ {
+  "lesson": "00",
+  "type": "cards",
+  "index": null,
+  "data": {
+   "t": "Vector stores compared: Qdrant, Milvus, OpenSearch, pgvector, FAISS, Snowflake, Databricks",
+   "b": "<b>Problem:</b> a system is fast at the question its index was designed for. Only some systems were designed for \"find the closest vectors\". The others added it later.<br><b>So:</b> choose by the main job and by where your data already lives.<ul><li><b>Qdrant</b>: vector database, one simple service. Vector search (HNSW) is the core. Keyword search through sparse vectors (BM25). Easy start, small to large.</li><li><b>Milvus</b>: vector database with several parts, more work to run. Same features, built-in BM25. Fits very large sets, up to billions of vectors.</li><li><b>OpenSearch</b>: keyword search engine (BM25, inverted index) with vector search added. Richest keyword tools: stemming, synonyms, fuzzy match. Best for hybrid search in one system.</li><li><b>pgvector</b>: a Postgres extension. Vector column and index inside a normal database. Best when you already run Postgres.</li><li><b>FAISS</b>: a library, not a database. Only the index; you build saving, updates and serving yourself.</li><li><b>Snowflake</b>: data warehouse for big SQL reports. Vector search is a service on the side. Use it when your data already lives there.</li><li><b>Databricks</b>: platform for big data processing and ML. Vector search syncs from your tables. Use it when your pipelines already live there.</li></ul><b>Evidence:</b> the lab uses none of these: one numpy matrix and a dot product (<code>lab/index.py:22</code>). Brute force is fine up to about 1M chunks; beyond that use HNSW in Qdrant or Milvus (<code>lessons/01_naive_rag/README.md:40-41</code>). The design doc names pgvector or OpenSearch for long-term memory (<code>docs/design/agent-runtime.md:108</code>)."
+  }
+ },
+ {
+  "lesson": "00",
+  "type": "qa",
+  "index": null,
+  "data": {
+   "q": "If you move to Milvus or Qdrant, do you have to build a separate BM25 index next to the embedding index?",
+   "a": "<b>Problem:</b> hybrid search needs two indexes over the same chunks: dense for meaning, BM25 for exact words. Kept in two places, they need two updates per change and can drift apart. The lab does this by hand: <code>Hybrid</code> builds a <code>VectorIndex</code> and a <code>BM25</code> object side by side and merges them with RRF in Python (<code>lab/retrieve.py:55-58</code>).<br><b>So:</b> no separate system. You add a sparse field to the same collection. One record holds the text, the dense vector and the sparse vector. One write updates both indexes; one query searches both and merges them.<ul><li><b>Milvus (2.5 and later)</b>: declare a text field and a BM25 function. Send raw text; the database builds the sparse vector.</li><li><b>Qdrant</b>: declare a sparse vector field with the IDF option. Send a sparse vector per chunk; a helper library can make it from text.</li></ul><b>Watch the tokenizer:</b> the lab keeps <code>-1021</code> and <code>/api/v3/order</code> as whole words (<code>lab/retrieve.py:10</code>). A default tokenizer may split them, and exact search for error codes gets worse."
+  }
  }
 ]

@@ -62,6 +62,7 @@ uv sync                                  # CPU PyTorch (default)
 uv run scripts/fetch_docs.py             # pinned Binance docs -> data/docs/
 cp .env.example .env                     # LLM key: LLM_API_KEY, or DEEPSEEK_API_KEY from your shell
 uv run lessons/01_naive_rag/run.py
+export HF_HUB_OFFLINE=1                  # after the first run: models are cached, skip Hub checks
 ```
 
 LLM: any OpenAI-compatible API (DeepSeek by default). Change `LLM_BASE_URL`,
